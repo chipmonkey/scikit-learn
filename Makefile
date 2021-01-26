@@ -66,3 +66,8 @@ code-analysis:
 
 flake8-diff:
 	git diff upstream/main -u -- "*.py" | flake8 --diff
+
+install:
+	. ./venv38/bin/activate ; pip install --verbose --no-build-isolation --editable .
+install-test:
+	python -c "import sklearn; sklearn.show_versions()"
