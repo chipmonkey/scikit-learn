@@ -25,6 +25,7 @@ from io import StringIO
 # is relative to the documentation root, use os.path.abspath to make it
 # absolute, like shown here.
 sys.path.insert(0, os.path.abspath('sphinxext'))
+sys.path.insert(0, os.path.abspath('../venv38/lib/python3.8/site-packages/'))
 
 from github_link import make_linkcode_resolve
 import sphinx_gallery

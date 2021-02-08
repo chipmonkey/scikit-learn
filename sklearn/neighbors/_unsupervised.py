@@ -28,6 +28,7 @@ class NearestNeighbors(KNeighborsMixin,
 
         - 'ball_tree' will use :class:`BallTree`
         - 'kd_tree' will use :class:`KDTree`
+        - 'trilateration' will use :class:`TrilaterationIndex`
         - 'brute' will use a brute-force search.
         - 'auto' will attempt to decide the most appropriate algorithm
           based on the values passed to :meth:`fit` method.
