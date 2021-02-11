@@ -64,8 +64,16 @@ cdef class TrilaterationIndex:
     def __cinit__(self):
         self.data_arr = np.empty((1, 1), dtype=DTYPE, order='C')
 
-    def __init__(self, data, ref, metric='euclidean', **kwargs):
+    def __init__(self, data, ref=None, metric='euclidean', **kwargs):
         self.data_arr = check_array(data, dtype=DTYPE, order='C')
+
+        # Ref points can be passed in
+        # Otherwise they are generated based on input data
+        if ref is None:
+            ref = self._create_ref_points()
+            print("generated synthetic reference points:")
+            print(ref)
+
         self.ref_points_arr = check_array(ref, dtype=DTYPE, order='C')
 
         if self.data_arr.shape[1] != self.ref_points_arr.shape[1]:
@@ -102,10 +110,23 @@ cdef class TrilaterationIndex:
         self.idx_array_arr = self.idx_array_arr[r0sortorder]
 
         self._update_memviews()
-        _find_nearest_sorted_2D(self.distances, -2)
-        _find_nearest_sorted_2D(self.distances, 62)
-        _find_nearest_sorted_2D(self.distances, 100)
+        # _find_nearest_sorted_2D(self.distances, -2)
+        # _find_nearest_sorted_2D(self.distances, 62)
+        # _find_nearest_sorted_2D(self.distances, 100)
 
+    def _create_ref_points(self):
+        """
+        Create a set of well distributed reference points
+        in the same number of dimensions as the input data
+
+        For the love of all that is holy, make this better.
+        """
+
+        cdef DTYPE_t MAX_REF = 9999.0
+
+        ndims = self.data_arr.shape[1]
+        refs = [[0]*i+[MAX_REF]*(ndims-i) for i in range(ndims)]
+        return np.asarray(refs)
 
     def _update_memviews(self):
         self.data = get_memview_DTYPE_2D(self.data_arr)
@@ -120,6 +141,31 @@ cdef class TrilaterationIndex:
         query the index for k nearest neighbors
         """
 
+        if k != 1:
+            raise ValueError("Right now this only works for k=1")
+
+        print(f"X.shape: {X.shape}")
+
+        if X.shape[0] == 1:
+            results=self._query_one(X, k, return_distance, sort_results)
+        else:
+            results = [self._query_one(x, k=k,
+                              return_distance=return_distance,
+                              sort_results=sort_results) \
+                       for x in X]
+
+        return results
+
+    def _query_one(self, X, k=5,
+              return_distance=True,
+              sort_results=True):
+        """
+        query the index for k nearest neighbors
+        """
+        if X.shape[0] != 1:
+            raise ValueError("_query takes only a single X point"
+                             "use query for multiple records")
+
         if X.shape[X.ndim - 1] != self.data.shape[1]:
             raise ValueError("query data dimension must "
                              "match training data dimension")
@@ -127,7 +173,9 @@ cdef class TrilaterationIndex:
         if self.data.shape[0] < k:
             raise ValueError("k must be less than or equal "
                              "to the number of training points")
-        
+
+        cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
+
         # Establish the distances from the query point to the reference points
         cdef np.ndarray q_dists
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
@@ -142,9 +190,9 @@ cdef class TrilaterationIndex:
         best_idx = _find_nearest_sorted_2D(self.distances, q_dists[0,0])
         # best_dist = self.dist_metric.dist(self.data[best_idx,:], &Xarr, X.shape[1])
         # print(self.data_arr[best_idx,:].shape)
-        best_dist = cdist([self.data_arr[best_idx,:]], X)
+        best_dist = cdist([self.data_arr[self.idx_array_arr[best_idx],:]], X)
 
-        print("first best guess:")
+        print(f"first best guess: {best_idx} data[{self.idx_array_arr[best_idx]}]")
         print(best_idx)
         print(np.asarray(self.data[best_idx,:]))
 
@@ -164,6 +212,7 @@ cdef class TrilaterationIndex:
 
         while True:
             if low_idx <= low_idx_possible and high_idx >= high_idx_possible:
+                print(f"breaking because {low_idx} <= {low_idx_possible} and {high_idx} >= {high_idx_possible}")
                 break
 
             # Determine whether the next high or low point is a better test:
@@ -184,11 +233,11 @@ cdef class TrilaterationIndex:
                 print("why?")
                 break
 
-            print(f"testing point at: {self.idx_array[test_idx]} {np.asarray(self.data[self.idx_array[test_idx],:])}")
+            print(f"testing point at index {test_idx}: data[{self.idx_array[test_idx]}] {np.asarray(self.data[self.idx_array[test_idx],:])}")
             # Check that all pre-calculated distances are better than best
             sufficient = True
             for d, q in zip(self.distances[test_idx,1:], q_dists[0,1:]):
-                print(f"testing: ({abs(d-q)}) vs {best_dist}")
+                print(f"testing that: {abs(d-q)} < {best_dist}")
                 if abs(d-q) > best_dist:
                     sufficient = False
                     break
@@ -224,9 +273,5 @@ cdef class TrilaterationIndex:
         if sort_results and not return_distance:
             raise ValueError("return_distance must be True "
                              "if sort_results is True")
-        
-
-
-
 
     pass
