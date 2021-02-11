@@ -1,5 +1,7 @@
 # File is temporary, for moving around some dependencies
 
+from libc.math cimport fabs
+
 cdef DTYPE_t[:, ::1] get_memview_DTYPE_2D(
                                np.ndarray[DTYPE_t, ndim=2, mode='c'] X):
     return <DTYPE_t[:X.shape[0], :X.shape[1]:1]> (<DTYPE_t*> X.data)
@@ -18,6 +20,17 @@ cdef inline void dual_swap(DTYPE_t* darr, ITYPE_t* iarr,
     cdef ITYPE_t itmp = iarr[i1]
     iarr[i1] = iarr[i2]
     iarr[i2] = itmp
+
+cdef int _find_nearest_sorted_2D(DTYPE_t[:,:] rdists, DTYPE_t target):
+    """ rdists must be sorted by its first column.
+    Can we do this faster with Memoryviews?  See _simultaneous_sort
+    """
+    cdef int idx
+    idx = np.searchsorted(rdists[:,0], target, side="left")
+    if idx > 0 and (idx == len(rdists) or fabs(target - rdists[idx-1,0]) < fabs(target - rdists[idx,0])):
+        idx = idx - 1
+    return idx
+
 
 cdef int _simultaneous_sort(DTYPE_t* dist, ITYPE_t* idx,
                             ITYPE_t size) nogil except -1:
