@@ -70,6 +70,11 @@ cdef class NeighborsHeap:
         self.distances = get_memview_DTYPE_2D(self.distances_arr)
         self.indices = get_memview_ITYPE_2D(self.indices_arr)
 
+    def get_max(self, row):
+        """Get the max distance and index from the heap for a given row
+        """
+        return self.largest(row), self.largest_idx(row)
+
     def get_arrays(self, sort=True):
         """Get the arrays of distances and indices within the heap.
 
@@ -83,6 +88,10 @@ cdef class NeighborsHeap:
     cdef inline DTYPE_t largest(self, ITYPE_t row) nogil except -1:
         """Return the largest distance in the given row"""
         return self.distances[row, 0]
+    
+    cdef inline ITYPE_t largest_idx(self, ITYPE_t row) nogil except -1:
+        """Return the index for the largest distance in the given row"""
+        return self.indices[row, 0]
 
     def push(self, ITYPE_t row, DTYPE_t val, ITYPE_t i_val):
         return self._push(row, val, i_val)

@@ -35,11 +35,12 @@ print(cdist(samples, querypoint))
 from sklearn.neighbors import NearestNeighbors, KDTree
 from sklearn.neighbors import TrilaterationIndex
 
-neigh = NearestNeighbors(radius=10)
 tree = KDTree(samples)
 tq = tree.query(querypoint, k=2)
 print("tree query results:")
 print(tq)
+
+neigh = NearestNeighbors(radius=10)
 neigh.fit(samples)
 
 print("finding neighbors within radius:")
@@ -79,5 +80,11 @@ print(result1)
 
 t2 = TrilaterationIndex(samples)
 result2 = t2.query(X=np.asarray(querypoint), k=1)
+print(result2)
+print("This should be 14.30117 something")
+
+
+t2 = TrilaterationIndex(samples)
+result2 = t2.query(X=np.asarray(querypoint), k=3)
 print(result2)
 print("This should be 14.30117 something")
