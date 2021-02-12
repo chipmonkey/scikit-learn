@@ -35,6 +35,15 @@ cdef int _find_nearest_sorted_2D(DTYPE_t[:,:] rdists, DTYPE_t target):
         idx = idx - 1
     return idx
 
+cdef int _find_nearest_sorted_1D(DTYPE_t[:] rdists, DTYPE_t target):
+    """ rdists must be sorted by its first column.
+    Can we do this faster with Memoryviews?  See _simultaneous_sort
+    """
+    cdef int idx
+    idx = np.searchsorted(rdists[:], target, side="left")
+    if idx > 0 and (idx == len(rdists) or fabs(target - rdists[idx-1]) < fabs(target - rdists[idx])):
+        idx = idx - 1
+    return idx
 
 cdef class NeighborsHeap:
     """A max-heap structure to keep track of distances/indices of neighbors

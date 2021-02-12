@@ -53,6 +53,11 @@ cdef class TrilaterationIndex:
     cdef np.ndarray idx_array_arr
     cdef np.ndarray r0sortorder
     cdef np.ndarray ref_dists
+    cdef np.ndarray r_indexes
+    cdef np.ndarray r_distances
+
+    cdef readonly ITYPE_t[:, ::1] r_indexes_mv
+    cdef readonly DTYPE_t[:, ::1] r_distances_mv
 
     cdef readonly DTYPE_t[:, ::1] data
     cdef readonly DTYPE_t[:, ::1] ref_points
@@ -109,10 +114,17 @@ cdef class TrilaterationIndex:
         self.ref_dists = self.ref_dists[r0sortorder]
         self.idx_array_arr = self.idx_array_arr[r0sortorder]
 
-        self._update_memviews()
-        # _find_nearest_sorted_2D(self.distances, -2)
-        # _find_nearest_sorted_2D(self.distances, 62)
-        # _find_nearest_sorted_2D(self.distances, 100)
+        # Build ADDITIONAL indexes each sorted by the specific ref dists
+        # Note that self.distances/self.ref_dists are ONLY sorted by r0 dist
+        self.distances = get_memview_DTYPE_2D(self.ref_dists)
+        self.data = get_memview_DTYPE_2D(self.data_arr)
+        self.idx_array = get_memview_ITYPE_1D(self.idx_array_arr)
+        self.ref_points = get_memview_DTYPE_2D(self.ref_points_arr)
+
+        self._build_r_indexes()
+        self.r_indexes_mv = get_memview_ITYPE_2D(self.r_indexes)
+        self.r_distances_mv = get_memview_DTYPE_2D(self.r_distances)
+
 
     def _create_ref_points(self):
         """
@@ -128,11 +140,28 @@ cdef class TrilaterationIndex:
         refs = [[0]*i+[MAX_REF]*(ndims-i) for i in range(ndims)]
         return np.asarray(refs)
 
-    def _update_memviews(self):
-        self.data = get_memview_DTYPE_2D(self.data_arr)
-        self.idx_array = get_memview_ITYPE_1D(self.idx_array_arr)
-        self.ref_points = get_memview_DTYPE_2D(self.ref_points_arr)
-        self.distances = get_memview_DTYPE_2D(self.ref_dists)
+
+    cdef _build_r_indexes(self):
+        """
+        Build a 2D array
+        """
+        self.r_indexes = np.zeros((self.distances.shape[1], self.distances.shape[0]), dtype=ITYPE, order='C')
+        self.r_distances = np.zeros((self.distances.shape[1], self.distances.shape[0]), dtype=DTYPE, order='C')
+
+        for i in range(self.distances.shape[1]):
+            print(type(self.idx_array), self.idx_array.shape)
+            print(self.idx_array)
+            print(type(self.distances), self.distances.shape)
+            self.r_indexes[i,] = self.idx_array
+            self.r_distances[i,] = self.distances[:,i]
+            if i > 0:  # At this moment, the first column is already sorted
+                sortorder = np.argsort(self.r_distances[i,])
+                self.r_indexes[i,] = self.r_indexes[i,sortorder]
+                self.r_distances[i,] = self.r_distances[i, sortorder]
+
+        print(self.r_indexes)
+        print(self.r_distances)
+        return 0
 
     def query(self, X, k=5,
               return_distance=True,
@@ -273,6 +302,49 @@ cdef class TrilaterationIndex:
         # return (self.idx_array[best_idx], best_dist)
         return heap.get_arrays()
 
+    cdef _query_expand(self, X, k=5,
+              start_dist = 0.01,
+              return_distance=True,
+              sort_results=True):
+        """
+        return k-nn by the expanding method...
+        starting with start_dist, iterate over query_radius
+        while expanding and contracting the radius to
+        arrive at a good result
+        """
+
+        cdef DTYPE_t radius, too_high, too_low, new_radius, STD_SCALE, MAX_FUDGE
+        cdef ITYPE_t approx_count, i, MAX_ITER
+
+        MAX_ITER = 20
+        MAX_FUDGE = 5.0
+        STD_SCALE = 2.0
+
+        radius = start_dist
+        too_low = 0
+        too_high = np.inf
+        approx_count = self.query_radius_approx(X, radius)
+
+        for i in range(MAX_ITER):
+            if approx_count == k:
+                break
+            elif approx_count < k:
+                too_low = radius
+                new_radius = start_dist * STD_SCALE
+                if new_radius > too_high:
+                    new_radius = (too_high + radius) / STD_SCALE
+                radius = new_radius
+                approx_count = self.query_radius_approx(X, radius)
+                continue
+            elif approx_count > k * MAX_FUDGE:
+                radius = (radius + too_low) / STD_SCALE
+                approx_count = self.query_radius_approx(X, radius)
+            else:
+                continue
+        
+        return too_low, too_high, approx_count
+        
+
 
 
     def query_radius(self, X, r,
@@ -291,3 +363,31 @@ cdef class TrilaterationIndex:
                              "if sort_results is True")
 
     pass
+
+    def query_radius_approx(self, X, r):
+        """
+        query the index for neighbors within a radius r
+        return approximate results only (by relying on index distances)
+        """
+        result = self._query_radius_approx(X, r)
+        return result
+
+    cdef _query_radius_approx(self, X, r):
+
+        # The main self.idx_array and self.distances sort ONLY by the first
+        # reference distance.  Here we sort by all three.
+        # Tune this some day...
+
+        cdef np.ndarray points_in_range = np.asarray([0])
+        cdef np.ndarray q_dists
+        q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+
+        for i in range(self.r_indexes_mv.shape[1]):
+            low_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, 0] - r)
+            high_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, 0] + r)
+            
+            print(i)
+
+
+        return points_in_range
+
