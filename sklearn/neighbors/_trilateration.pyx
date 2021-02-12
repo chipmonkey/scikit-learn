@@ -71,8 +71,8 @@ cdef class TrilaterationIndex:
         # Otherwise they are generated based on input data
         if ref is None:
             ref = self._create_ref_points()
-            print("generated synthetic reference points:")
-            print(ref)
+            # print("generated synthetic reference points:")
+            # print(ref)
 
         self.ref_points_arr = check_array(ref, dtype=DTYPE, order='C')
 
@@ -141,7 +141,9 @@ cdef class TrilaterationIndex:
         query the index for k nearest neighbors
         """
 
-        if X.shape[0] == 1:
+        if isinstance(X, list):
+            results = self._query_one(np.asarray(X), k, return_distance, sort_results)
+        elif X.shape[0] == 1:
             results=self._query_one(X, k, return_distance, sort_results)
         else:
             results = [self._query_one(x, k=k,
@@ -151,7 +153,7 @@ cdef class TrilaterationIndex:
 
         return results
 
-    def _query_one(self, X, k=5,
+    cdef _query_one(self, X, k=5,
               return_distance=True,
               sort_results=True):
         """
@@ -172,7 +174,7 @@ cdef class TrilaterationIndex:
         # Can probably improve this - using a heap that allows more than 1 value
         # but we're always only using one here (X.shape[0] must be 1 from above)
         cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
-        print(f"initialized heap: {heap.get_arrays(sort=False)}")
+        # print(f"initialized heap: {heap.get_arrays(sort=False)}")
 
         # Establish the distances from the query point to the reference points
         cdef np.ndarray q_dists
@@ -193,21 +195,21 @@ cdef class TrilaterationIndex:
         # print(f"max heap: {heap.get_max(0)}")
         # print(f"largest: {heap.largest(0)}")
 
-        print(f"first best guess: {best_idx} data[{self.idx_array_arr[best_idx]}]")
-        print(best_idx)
-        print(np.asarray(self.data[best_idx,:]))
+        # print(f"first best guess: {best_idx} data[{self.idx_array_arr[best_idx]}]")
+        # print(best_idx)
+        # print(np.asarray(self.data[best_idx,:]))
 
         # Populate the heap using 2k elements; k on each side of our first guess:
         low_idx = max(best_idx - k, 0)
         high_idx = min(best_idx + k, self.distances.shape[0])
-        print(f"low_idx_possible: {low_idx_possible}; high_idx_possible: {high_idx_possible} with low_idx: {low_idx}, high_idx: {high_idx}")
+        # print(f"low_idx_possible: {low_idx_possible}; high_idx_possible: {high_idx_possible} with low_idx: {low_idx}, high_idx: {high_idx}")
         for i in range(low_idx, high_idx + 1):
             if i < self.distances.shape[0]:
                 test_dist = cdist([self.data_arr[self.idx_array_arr[i],:]], X)
                 heap.push(0, test_dist, self.idx_array_arr[i])
 
-        print("starting best distance heap")
-        print(f"{heap.get_arrays(sort=False)}")
+        # print("starting best distance heap")
+        # print(f"{heap.get_arrays(sort=False)}")
 
         # Establish bounds between which to search
         if heap.largest(0) != np.inf:
@@ -223,16 +225,16 @@ cdef class TrilaterationIndex:
 
         while True:
             if low_idx <= low_idx_possible and high_idx >= high_idx_possible:
-                print(f"breaking because {low_idx} <= {low_idx_possible} and {high_idx} >= {high_idx_possible}")
+                # print(f"breaking because {low_idx} <= {low_idx_possible} and {high_idx} >= {high_idx_possible}")
                 break
 
-            print(f"heap.largest(0) = {heap.largest(0)}")
+            # print(f"heap.largest(0) = {heap.largest(0)}")
 
             # Determine whether the next high or low point is a better test:
             lowdelta = fabs(self.distances[low_idx, 0] - q_dists[0, 0])
             highdelta = fabs(self.distances[high_idx, 0] - q_dists[0, 0])
-            print(f"comparing: {low_idx}, {high_idx}")
-            print(f"lowdelta: {lowdelta}, highdelta: {highdelta}")
+            # print(f"comparing: {low_idx}, {high_idx}")
+            # print(f"lowdelta: {lowdelta}, highdelta: {highdelta}")
             if lowdelta <= highdelta and low_idx >= low_idx_possible:
                 test_idx = low_idx
                 low_idx = low_idx - 1
@@ -246,22 +248,22 @@ cdef class TrilaterationIndex:
                 print("why?")
                 break
 
-            print(f"testing point at index {test_idx}: data[{self.idx_array[test_idx]}] {np.asarray(self.data[self.idx_array[test_idx],:])}")
+            # print(f"testing point at index {test_idx}: data[{self.idx_array[test_idx]}] {np.asarray(self.data[self.idx_array[test_idx],:])}")
             # Check that all pre-calculated distances are better than best
             sufficient = True
 
             for d, q in zip(self.distances[test_idx,1:], q_dists[0,1:]):
-                print(f"testing that: {abs(d-q)} < {heap.largest(0)}")
+                # print(f"testing that: {abs(d-q)} < {heap.largest(0)}")
                 if abs(d-q) > heap.largest(0):
                     sufficient = False
                     break
             
             if sufficient:
                 test_dist = cdist([self.data_arr[self.idx_array[test_idx],:]], X)
-                print(f"{test_idx} is sufficient... test_dist is: {test_dist}")
+                # print(f"{test_idx} is sufficient... test_dist is: {test_dist}")
                 if test_dist < heap.largest(0):
                     heap.push(0, test_dist, self.idx_array[test_idx])
-                    print(f"pushing idx: {best_idx} ({self.idx_array[best_idx]}) with dist: {test_dist}")
+                    # print(f"pushing idx: {best_idx} ({self.idx_array[best_idx]}) with dist: {test_dist}")
                     best_idx = test_idx
                     low_idx_possible = _find_nearest_sorted_2D(self.distances, q_dists[0, 0] - heap.largest(0))
                     high_idx_possible = _find_nearest_sorted_2D(self.distances, q_dists[0, 0] + heap.largest(0))
