@@ -21,6 +21,8 @@
 
 cimport numpy as np
 import numpy as np
+
+from functools import reduce
 from libc.math cimport fabs
 
 from scipy.spatial.distance import cdist
@@ -378,16 +380,27 @@ cdef class TrilaterationIndex:
         # reference distance.  Here we sort by all three.
         # Tune this some day...
 
-        cdef np.ndarray points_in_range = np.asarray([0])
+        # cdef np.ndarray points_in_range = np.arange(self.r_indexes_mv.shape[0]).reshape(self.r_indexes_mv.shape[0])
         cdef np.ndarray q_dists
+
+        points_in_range = []
+
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+        print(f"q_dists: {q_dists[0]} - {q_dists[0, 1]}")
+        print(f"r.indexes.shape: {self.r_indexes_mv.shape}")
 
-        for i in range(self.r_indexes_mv.shape[1]):
-            low_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, 0] - r)
-            high_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, 0] + r)
-            
+        for i in range(self.r_indexes_mv.shape[0]):
+            # low_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, i] - r)
+            low_idx = np.searchsorted(self.r_distances_mv[i, :], q_dists[0, i] - r, side="left")
+            # high_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, i] + r)
+            high_idx = np.searchsorted(self.r_distances_mv[i, :], q_dists[0, i] + r, side="right")
+
+            print(f"low_idx: {low_idx}, high_idx: {high_idx}")
+            print(f"valid IDS: {self.r_indexes[i, low_idx:high_idx]}")
+            points_in_range.append(self.r_indexes[i, low_idx:high_idx])
             print(i)
-
-
-        return points_in_range
+        
+        common_idx = reduce(np.intersect1d, points_in_range)
+        print(f"commonIDs: {common_idx}")
+        return common_idx
 
