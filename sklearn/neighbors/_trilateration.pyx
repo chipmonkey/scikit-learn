@@ -23,7 +23,7 @@ cimport numpy as np
 import numpy as np
 
 from functools import reduce
-from libc.math cimport fabs
+from libc.math cimport fabs, ceil
 
 from scipy.spatial.distance import cdist
 
@@ -304,49 +304,79 @@ cdef class TrilaterationIndex:
         # return (self.idx_array[best_idx], best_dist)
         return heap.get_arrays()
 
-    cdef _query_expand(self, X, k=5,
-              start_dist = 0.01,
-              return_distance=True,
-              sort_results=True):
+    cdef _get_start_dist(self, X, k):
+        """
+        For the expanding radius approach, we must make an initial guess
+        for a radius that may contain exactly k members.
+        We do this by selecting the R0 reference distances, and simply
+        expanding to k items, and returning the distance which separates
+        the k points along that sole axis
+        """
+        cdef np.ndarray q_dists
+        cdef ITYPE_t low_idx, high_idx
+        q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+        print(f"q_dists: {q_dists}")
+        
+        ground_idx = _find_nearest_sorted_2D(self.distances, q_dists[0, 0])
+        # ground_idx = np.searchsorted(self.distances, q_dists[0, 0], side="left")
+        low_idx = ground_idx - (k//2)
+        high_idx = ground_idx + ceil(k/2)
+
+        print(f"get_start_dist is {self.distances[high_idx, 0] - self.distances[low_idx, 0]}")
+        return(self.distances[high_idx, 0] - self.distances[low_idx, 0])
+
+    def query_expand(self, X, k, return_distance=True, sort_results=True):
+        return np.asarray(self._query_expand(X, k, return_distance, sort_results))
+
+    cdef _query_expand(self, X, k,
+              return_distance,
+              sort_results):
         """
         return k-nn by the expanding method...
-        starting with start_dist, iterate over query_radius
+        select a starting radius, iterate over query_radius
         while expanding and contracting the radius to
         arrive at a good result
         """
 
         cdef DTYPE_t radius, too_high, too_low, new_radius, STD_SCALE, MAX_FUDGE
         cdef ITYPE_t approx_count, i, MAX_ITER
+        cdef ITYPE_t[::1] approx_array
+
 
         MAX_ITER = 20
-        MAX_FUDGE = 5.0
+        MAX_FUDGE = 1.0  # MAX_ITER should handle things...
         STD_SCALE = 2.0
 
-        radius = start_dist
+        radius = self._get_start_dist(X, k)
+
         too_low = 0
         too_high = np.inf
-        approx_count = self.query_radius_approx(X, radius)
+        print(f"testing query_radius_approx with: {X}, {radius}")
+        approx_array = self._query_radius_approx(X, radius)
+        approx_count = approx_array.shape[0]
 
         for i in range(MAX_ITER):
             if approx_count == k:
                 break
             elif approx_count < k:
+                print(f"{approx_count} is too few at radius {radius}")
                 too_low = radius
-                new_radius = start_dist * STD_SCALE
+                new_radius = radius * STD_SCALE
                 if new_radius > too_high:
                     new_radius = (too_high + radius) / STD_SCALE
                 radius = new_radius
-                approx_count = self.query_radius_approx(X, radius)
+                approx_array = self._query_radius_approx(X, radius)
+                approx_count = approx_array.shape[0]
                 continue
             elif approx_count > k * MAX_FUDGE:
+                print(f"{approx_count} is too many at radius {radius}")
                 radius = (radius + too_low) / STD_SCALE
-                approx_count = self.query_radius_approx(X, radius)
+                approx_array = self._query_radius_approx(X, radius)
+                approx_count = approx_array.shape[0]
             else:
                 continue
         
-        return too_low, too_high, approx_count
-        
-
+        return approx_array
 
 
     def query_radius(self, X, r,
@@ -364,7 +394,21 @@ cdef class TrilaterationIndex:
             raise ValueError("return_distance must be True "
                              "if sort_results is True")
 
-    pass
+        cdef ITYPE_t[::1] idx_within_r
+
+        if isinstance(X, list):
+            idx_witin_r = self._query_radius_approx([X], r)
+        elif X.shape[0] == 1:
+            idx_witin_r = self._query_radius_approx(X, r)
+        else:
+            idx_witin_r = [self._query_radius_approx(x, r) for x in X]
+
+        if return_distance:
+            dists_within_r = self.dist_metric.pairwise(self.data_arr[idx_within_r], X)
+            return idx_witin_r, dists_within_r
+
+        return idx_witin_r
+
 
     def query_radius_approx(self, X, r):
         """
