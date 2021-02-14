@@ -80,7 +80,44 @@ print(f"query_radius_approx: {result1}")
 result2 = ti.query_radius_approx(np.asarray(querypoint), 20)
 print(f"query_radius: {result2}")
 
-print("------------")
+rq = ti.query_radius(np.asarray(querypoint), 20)
+print(f"rq: {rq}")
 
-r3 = ti.query_expand(np.asarray(querypoint), 3)
+print("------------")
+print("single point tests")
+r4 = ti.query(querypoint, 3)
+ids, dists = r4
+print(f"query: {r4}")
+print(f"indexes: {ids}, dists: {dists}")
+
+r3 = ti.query_expand(querypoint, 3)
+ids, dists = r3
 print(f"query_expand: {r3}")
+print(f"indexes: {np.asarray(ids)}", dists)
+
+print("Passed Single Point tests")
+print("------------")
+print("Starting multi point tests")
+
+querypoints = np.asarray([np.asarray([50, 65]),
+               np.asarray([55, 70]),
+               np.asarray([45, 80])])
+
+r4 = ti.query(querypoints, 3)
+print(f"query results r4: {r4}")
+print(f"r4.shape: {np.asarray(r4).shape}")
+
+ids, dists = r4
+print(f"indexes: {ids}, dists: {dists}")
+
+r3 = ti.query_expand(querypoints, 3)
+ids, dists = r3
+print(f"query_expand: {r3}")
+print(f"indexes: {np.asarray(ids)}", dists)
+
+# [(array([[14.30117536, 15.82017495, 16.12663017]]), array([[0, 5, 3]])),
+#  (array([[16.08773716, 16.85576594, 16.85576594]]), array([[5, 0, 0]])),
+#  (array([[ 4.37084771, 23.74124599, 23.74124599]]), array([[5, 3, 3]]))]
+
+# cython sklearn/neighbors/_trilateration.pyx -a
+# cython sklearn/neighbors/_kd_tree.pyx -a

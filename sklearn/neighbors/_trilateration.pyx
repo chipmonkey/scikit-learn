@@ -151,9 +151,6 @@ cdef class TrilaterationIndex:
         self.r_distances = np.zeros((self.distances.shape[1], self.distances.shape[0]), dtype=DTYPE, order='C')
 
         for i in range(self.distances.shape[1]):
-            print(type(self.idx_array), self.idx_array.shape)
-            print(self.idx_array)
-            print(type(self.distances), self.distances.shape)
             self.r_indexes[i,] = self.idx_array
             self.r_distances[i,] = self.distances[:,i]
             if i > 0:  # At this moment, the first column is already sorted
@@ -161,8 +158,6 @@ cdef class TrilaterationIndex:
                 self.r_indexes[i,] = self.r_indexes[i,sortorder]
                 self.r_distances[i,] = self.r_distances[i, sortorder]
 
-        print(self.r_indexes)
-        print(self.r_distances)
         return 0
 
     def query(self, X, k=5,
@@ -177,10 +172,12 @@ cdef class TrilaterationIndex:
         elif X.shape[0] == 1:
             results=self._query_one(X, k, return_distance, sort_results)
         else:
-            results = [self._query_one(x, k=k,
-                              return_distance=return_distance,
-                              sort_results=sort_results) \
-                       for x in X]
+            raise NotImplementedError("Not yet")
+            # [print(x) for x in X]
+            # results = [self._query_one(np.asarray([x]), k=k,
+            #                   return_distance=return_distance,
+            #                   sort_results=sort_results) \
+            #            for x in X]
 
         return results
 
@@ -205,7 +202,6 @@ cdef class TrilaterationIndex:
         # Can probably improve this - using a heap that allows more than 1 value
         # but we're always only using one here (X.shape[0] must be 1 from above)
         cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
-        # print(f"initialized heap: {heap.get_arrays(sort=False)}")
 
         # Establish the distances from the query point to the reference points
         cdef np.ndarray q_dists
@@ -220,27 +216,17 @@ cdef class TrilaterationIndex:
 
         best_idx = _find_nearest_sorted_2D(self.distances, q_dists[0,0])
         # best_dist = self.dist_metric.dist(self.data[best_idx,:], &Xarr, X.shape[1])
-        # print(self.data_arr[best_idx,:].shape)
         best_dist = cdist([self.data_arr[self.idx_array_arr[best_idx],:]], X)
         # heap.push(0, best_dist, best_idx)
-        # print(f"max heap: {heap.get_max(0)}")
-        # print(f"largest: {heap.largest(0)}")
-
-        # print(f"first best guess: {best_idx} data[{self.idx_array_arr[best_idx]}]")
-        # print(best_idx)
-        # print(np.asarray(self.data[best_idx,:]))
 
         # Populate the heap using 2k elements; k on each side of our first guess:
         low_idx = max(best_idx - k, 0)
         high_idx = min(best_idx + k, self.distances.shape[0])
-        # print(f"low_idx_possible: {low_idx_possible}; high_idx_possible: {high_idx_possible} with low_idx: {low_idx}, high_idx: {high_idx}")
         for i in range(low_idx, high_idx + 1):
             if i < self.distances.shape[0]:
                 test_dist = cdist([self.data_arr[self.idx_array_arr[i],:]], X)
                 heap.push(0, test_dist, self.idx_array_arr[i])
 
-        # print("starting best distance heap")
-        # print(f"{heap.get_arrays(sort=False)}")
 
         # Establish bounds between which to search
         if heap.largest(0) != np.inf:
@@ -256,16 +242,11 @@ cdef class TrilaterationIndex:
 
         while True:
             if low_idx <= low_idx_possible and high_idx >= high_idx_possible:
-                # print(f"breaking because {low_idx} <= {low_idx_possible} and {high_idx} >= {high_idx_possible}")
                 break
-
-            # print(f"heap.largest(0) = {heap.largest(0)}")
 
             # Determine whether the next high or low point is a better test:
             lowdelta = fabs(self.distances[low_idx, 0] - q_dists[0, 0])
             highdelta = fabs(self.distances[high_idx, 0] - q_dists[0, 0])
-            # print(f"comparing: {low_idx}, {high_idx}")
-            # print(f"lowdelta: {lowdelta}, highdelta: {highdelta}")
             if lowdelta <= highdelta and low_idx >= low_idx_possible:
                 test_idx = low_idx
                 low_idx = low_idx - 1
@@ -314,23 +295,55 @@ cdef class TrilaterationIndex:
         """
         cdef np.ndarray q_dists
         cdef ITYPE_t low_idx, high_idx
+
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
-        print(f"q_dists: {q_dists}")
         
         ground_idx = _find_nearest_sorted_2D(self.distances, q_dists[0, 0])
         # ground_idx = np.searchsorted(self.distances, q_dists[0, 0], side="left")
         low_idx = ground_idx - (k//2)
         high_idx = ground_idx + ceil(k/2)
 
-        print(f"get_start_dist is {self.distances[high_idx, 0] - self.distances[low_idx, 0]}")
         return(self.distances[high_idx, 0] - self.distances[low_idx, 0])
 
     def query_expand(self, X, k, return_distance=True, sort_results=True):
-        return np.asarray(self._query_expand(X, k, return_distance, sort_results))
+        """
+            X can be what...?
+            A singlie list of one coordinate: [50, 25, 100]
+        """
+        cdef np.ndarray idx_results
+        # cdef DTYPE_t[::1] dist_results
+        cdef np.ndarray dist_results
 
-    cdef _query_expand(self, X, k,
-              return_distance,
-              sort_results):
+
+        if isinstance(X, list):
+            X = np.asarray(X)
+
+        cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
+
+        if X.shape[0] == 1:
+            idx_results = np.asarray(self._query_expand(X, k))
+
+        else:
+            raise NotImplementedError("You can't do that yet")
+            # [print(x) for x in X]
+            # all_results = [self._query_expand(x, k) for x in X]
+            # print(f"all_results: {all_results}")
+
+        dist_results = self.dist_metric.pairwise(self.data_arr[idx_results], X)
+        # best = np.argsort(dist_results)
+        # dist_results = dist_results[best]
+        # idx_results = idx_results[best]
+
+        for idx, dist in zip(idx_results, dist_results):
+            heap.push(0, dist, idx)
+
+        if return_distance:
+            return heap.get_arrays()
+
+        return idx_results
+
+
+    cdef _query_expand(self, X, k):
         """
         return k-nn by the expanding method...
         select a starting radius, iterate over query_radius
@@ -338,20 +351,27 @@ cdef class TrilaterationIndex:
         arrive at a good result
         """
 
+        if X.shape[0] != 1:
+            raise ValueError("_query takes only a single X point"
+                             "use query for multiple records")
+
+        if X.shape[X.ndim - 1] != self.data.shape[1]:
+            raise ValueError("query data dimension must "
+                             "match training data dimension")
+
         cdef DTYPE_t radius, too_high, too_low, new_radius, STD_SCALE, MAX_FUDGE
         cdef ITYPE_t approx_count, i, MAX_ITER
         cdef ITYPE_t[::1] approx_array
 
 
         MAX_ITER = 20
-        MAX_FUDGE = 1.0  # MAX_ITER should handle things...
+        MAX_FUDGE = 5.0
         STD_SCALE = 2.0
 
         radius = self._get_start_dist(X, k)
 
         too_low = 0
         too_high = np.inf
-        print(f"testing query_radius_approx with: {X}, {radius}")
         approx_array = self._query_radius_approx(X, radius)
         approx_count = approx_array.shape[0]
 
@@ -359,7 +379,6 @@ cdef class TrilaterationIndex:
             if approx_count == k:
                 break
             elif approx_count < k:
-                print(f"{approx_count} is too few at radius {radius}")
                 too_low = radius
                 new_radius = radius * STD_SCALE
                 if new_radius > too_high:
@@ -369,7 +388,6 @@ cdef class TrilaterationIndex:
                 approx_count = approx_array.shape[0]
                 continue
             elif approx_count > k * MAX_FUDGE:
-                print(f"{approx_count} is too many at radius {radius}")
                 radius = (radius + too_low) / STD_SCALE
                 approx_array = self._query_radius_approx(X, radius)
                 approx_count = approx_array.shape[0]
@@ -394,20 +412,32 @@ cdef class TrilaterationIndex:
             raise ValueError("return_distance must be True "
                              "if sort_results is True")
 
-        cdef ITYPE_t[::1] idx_within_r
+        # cdef ITYPE_t[::1] idx_within_r = np.asarray([1])
+        cdef np.ndarray idx_within_r = np.asarray([1])
+        cdef np.ndarray dists_within_r
 
         if isinstance(X, list):
-            idx_witin_r = self._query_radius_approx([X], r)
-        elif X.shape[0] == 1:
-            idx_witin_r = self._query_radius_approx(X, r)
+            X = np.asarray(X)
+
+        if X.shape[0] == 1:
+            idx_within_r = self._query_radius_approx(X, r)
         else:
-            idx_witin_r = [self._query_radius_approx(x, r) for x in X]
+            idx_within_r = [self._query_radius_approx(x, r) for x in X]
+
+        dists_within_r = self.dist_metric.pairwise(self.data_arr[idx_within_r], X).reshape(idx_within_r.shape[0])
+        valid_idx = [x <= r for x in dists_within_r]
+        dists_within_r = dists_within_r[valid_idx]
+        idx_within_r = idx_within_r[valid_idx]
+
+        if sort_results:
+            sort_order = np.argsort(dists_within_r)
+            dists_within_r = dists_within_r[sort_order]
+            idx_within_r = idx_within_r[sort_order]
 
         if return_distance:
-            dists_within_r = self.dist_metric.pairwise(self.data_arr[idx_within_r], X)
-            return idx_witin_r, dists_within_r
+            return idx_within_r, dists_within_r
 
-        return idx_witin_r
+        return idx_within_r
 
 
     def query_radius_approx(self, X, r):
@@ -426,12 +456,16 @@ cdef class TrilaterationIndex:
 
         # cdef np.ndarray points_in_range = np.arange(self.r_indexes_mv.shape[0]).reshape(self.r_indexes_mv.shape[0])
         cdef np.ndarray q_dists
+        # cdef ITYPE_t[::1] common_idx
+        cdef np.ndarray common_idx
+
+        if isinstance(X, list) or X.ndim == 1:
+            X = np.asarray([X])
 
         points_in_range = []
-
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
-        print(f"q_dists: {q_dists[0]} - {q_dists[0, 1]}")
-        print(f"r.indexes.shape: {self.r_indexes_mv.shape}")
+        # print(f"q_dists: {q_dists[0]} - {q_dists[0, 1]}")
+        # print(f"r.indexes.shape: {self.r_indexes_mv.shape}")
 
         for i in range(self.r_indexes_mv.shape[0]):
             # low_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, i] - r)
@@ -439,12 +473,11 @@ cdef class TrilaterationIndex:
             # high_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, i] + r)
             high_idx = np.searchsorted(self.r_distances_mv[i, :], q_dists[0, i] + r, side="right")
 
-            print(f"low_idx: {low_idx}, high_idx: {high_idx}")
-            print(f"valid IDS: {self.r_indexes[i, low_idx:high_idx]}")
+            # print(f"low_idx: {low_idx}, high_idx: {high_idx}")
+            # print(f"valid IDS: {self.r_indexes[i, low_idx:high_idx]}")
             points_in_range.append(self.r_indexes[i, low_idx:high_idx])
-            print(i)
         
         common_idx = reduce(np.intersect1d, points_in_range)
-        print(f"commonIDs: {common_idx}")
+        # print(f"commonIDs: {common_idx}")
         return common_idx
 
