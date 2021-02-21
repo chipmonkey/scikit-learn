@@ -2,6 +2,7 @@
 #cython: boundscheck=False
 #cython: wraparound=False
 #cython: cdivision=True
+#cython: profile=True
 
 # Trilateration (or n-fold lateration for arbitrary dimensions)
 # =====================
@@ -22,6 +23,7 @@
 cimport numpy as np
 import numpy as np
 
+from collections import Counter
 from functools import reduce
 from libc.math cimport fabs, ceil
 
@@ -66,7 +68,10 @@ cdef class TrilaterationIndex:
     cdef public ITYPE_t[::1] idx_array
     cdef readonly DTYPE_t[:, ::1] distances
 
+    cdef int ndims
+
     cdef DistanceMetric dist_metric
+
 
     def __cinit__(self):
         self.data_arr = np.empty((1, 1), dtype=DTYPE, order='C')
@@ -138,8 +143,8 @@ cdef class TrilaterationIndex:
 
         cdef DTYPE_t MAX_REF = 9999.0
 
-        ndims = self.data_arr.shape[1]
-        refs = [[0]*i+[MAX_REF]*(ndims-i) for i in range(ndims)]
+        self.ndims = self.data_arr.shape[1]
+        refs = [[0]*i+[MAX_REF]*(self.ndims-i) for i in range(self.ndims)]
         return np.asarray(refs)
 
 
@@ -168,9 +173,9 @@ cdef class TrilaterationIndex:
         """
 
         if isinstance(X, list):
-            results = self._query_one(np.asarray(X), k, return_distance, sort_results)
+            results = self._query_one(np.asarray(X), k, return_distance)
         elif X.shape[0] == 1:
-            results=self._query_one(X, k, return_distance, sort_results)
+            results=self._query_one(X, k, return_distance)
         else:
             raise NotImplementedError("Not yet")
             # [print(x) for x in X]
@@ -182,8 +187,7 @@ cdef class TrilaterationIndex:
         return results
 
     cdef _query_one(self, X, k=5,
-              return_distance=True,
-              sort_results=True):
+              return_distance=True):
         """
         query the index for k nearest neighbors
         """
@@ -372,7 +376,9 @@ cdef class TrilaterationIndex:
 
         too_low = 0
         too_high = np.inf
-        approx_array = self._query_radius_approx(X, radius)
+        # approx_array = self._query_radius_at_least_k(X, radius, k)
+        approx_array = self._query_radius_r0_only(X, radius)
+        
         approx_count = approx_array.shape[0]
 
         for i in range(MAX_ITER):
@@ -384,12 +390,12 @@ cdef class TrilaterationIndex:
                 if new_radius > too_high:
                     new_radius = (too_high + radius) / STD_SCALE
                 radius = new_radius
-                approx_array = self._query_radius_approx(X, radius)
+                approx_array = self._query_radius_at_least_k(X, radius, k)
                 approx_count = approx_array.shape[0]
                 continue
             elif approx_count > k * MAX_FUDGE:
                 radius = (radius + too_low) / STD_SCALE
-                approx_array = self._query_radius_approx(X, radius)
+                approx_array = self._query_radius_at_least_k(X, radius, k)
                 approx_count = approx_array.shape[0]
             else:
                 continue
@@ -449,15 +455,17 @@ cdef class TrilaterationIndex:
         return result
 
     cdef _query_radius_approx(self, X, r):
+        """
 
-        # The main self.idx_array and self.distances sort ONLY by the first
-        # reference distance.  Here we sort by all three.
-        # Tune this some day...
+        """
 
         # cdef np.ndarray points_in_range = np.arange(self.r_indexes_mv.shape[0]).reshape(self.r_indexes_mv.shape[0])
         cdef np.ndarray q_dists
         # cdef ITYPE_t[::1] common_idx
         cdef np.ndarray common_idx
+        cdef np.ndarray new_points
+
+        point_counts = Counter()
 
         if isinstance(X, list) or X.ndim == 1:
             X = np.asarray([X])
@@ -467,7 +475,7 @@ cdef class TrilaterationIndex:
         # print(f"q_dists: {q_dists[0]} - {q_dists[0, 1]}")
         # print(f"r.indexes.shape: {self.r_indexes_mv.shape}")
 
-        for i in range(self.r_indexes_mv.shape[0]):
+        for i in range(self.ndims):
             # low_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, i] - r)
             low_idx = np.searchsorted(self.r_distances_mv[i, :], q_dists[0, i] - r, side="left")
             # high_idx = _find_nearest_sorted_1D(self.r_distances_mv[i, :], q_dists[0, i] + r)
@@ -475,9 +483,165 @@ cdef class TrilaterationIndex:
 
             # print(f"low_idx: {low_idx}, high_idx: {high_idx}")
             # print(f"valid IDS: {self.r_indexes[i, low_idx:high_idx]}")
-            points_in_range.append(self.r_indexes[i, low_idx:high_idx])
+            new_points = self.r_indexes[i, low_idx:high_idx]
+            # print(f"new_points: {new_points} len: {len(new_points)}")
+            # point_counts.update(new_points)  # Failed performance improvement test; leaving for posterity
+            points_in_range.append(new_points)
         
-        common_idx = reduce(np.intersect1d, points_in_range)
+        # THIS IS THE PERFORMANCE PROBLEM:
+        common_idx = reduce(np.intersect1d, points_in_range)  # This works but seems slow (fastest so far tho)
+        # common_idx = np.asarray([k for (k, v) in point_counts.items() if v == self.r_indexes_mv.shape[0]])
+
         # print(f"commonIDs: {common_idx}")
         return common_idx
 
+    cdef _query_radius_at_least_k(self, X, r, k):
+        """ for use with expanding estimates...
+        break early if we've eliminated too many points
+        """
+
+        cdef np.ndarray q_dists
+        cdef np.ndarray common_idx
+
+        if isinstance(X, list) or X.ndim == 1:
+            X = np.asarray([X])
+
+        points_in_range = []
+        new_points = []
+
+        q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+
+        for i in range(self.r_indexes_mv.shape[0]):
+            low_idx = np.searchsorted(self.r_distances_mv[i, :], q_dists[0, i] - r, side="left")
+            high_idx = np.searchsorted(self.r_distances_mv[i, :], q_dists[0, i] + r, side="right")
+
+            new_points = self.r_indexes[i, low_idx:high_idx]
+
+            if points_in_range == []:
+                points_in_range = new_points
+            else:
+                # THIS IS THE PERFORMANCE PROBLEM:
+                points_in_range = np.intersect1d(points_in_range, new_points)  # This is the line that works, but slowly
+            # At Least k voodoo:
+            if len(points_in_range) < k:
+                break
+        
+        common_idx = np.asarray(points_in_range)
+        return common_idx
+
+
+    def query_radius_t3(self, X, r):
+        """
+        query the index for neighbors within a radius r
+        return approximate results only (by relying on index distances)
+        """
+        # result = np.asarray(self._query_radius_r0_only(X, r))
+        result = self._query_radius_r0_only(X, r)
+
+        return result
+
+    cdef _query_radius_r0_only(self, X, r):
+        """
+        This approach uses only the original sort order from Ref Point 0
+        and then brute forces whatever that index indicates MAY be in range
+
+        NOT FINISHED
+        """
+
+        cdef DTYPE_t[:, ::1] q_dists # , dist_results
+        cdef np.ndarray[DTYPE_t, ndim=1] dist_results
+        # cdef DTYPE_t[::1] dist_results
+        cdef ITYPE_t[::1] approx_idxs, results
+        # cdef np.ndarray[DTYPE_t, ndim=2] q_dists, dist_results
+        # cdef np.ndarray[ITYPE_t] approx_idxs #, points_in_range
+        cdef ITYPE_t i, low_idx, high_idx, count
+
+        if isinstance(X, list) or X.ndim == 1:
+            X = np.asarray([X])
+
+        # points_in_range = []
+
+        q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+        # ground_idx = _find_nearest_sorted_2D(self.distances, q_dists[0, 0])
+
+        # Which of the following two pairs are reliably faster?  Probably neither:
+        # low_idx = np.searchsorted(self.r_distances_mv[0,:], q_dists[0, 0] - r, side="left")
+        # high_idx = np.searchsorted(self.r_distances_mv[0,:], q_dists[0, 0] + r, side="right")
+
+        low_idx = np.searchsorted(self.distances[:,0], q_dists[0, 0] - r, side="left")
+        high_idx = np.searchsorted(self.distances[:,0], q_dists[0, 0] + r, side="right")
+        
+        # print(f"self.distances.shape: {self.distances.shape}, low_idx: {low_idx}, high_idx: {high_idx}")
+        # print(f"self.distances[low_idx, :]: {np.asarray(self.distances[low_idx,:])}")
+        # print(f"self.distances[low_idx+1, :]: {np.asarray(self.distances[low_idx+1,:])}")
+        # print(f"self.distances[low_idx+2, :]: {np.asarray(self.distances[low_idx+2,:])}")
+
+        # print(f"q_dists[0, :]: {q_dists[0, :]}")
+        # print(f"self.distances - qd: {abs(np.asarray(self.distances[low_idx,:] - q_dists[0, :]))} vs r: {r}")
+
+        # The next two lines work but are 10 times slower than just brute alone (as-is)
+        # approx_idxs = np.asarray([i for i in range(low_idx, high_idx+1) \
+        #               if np.all(abs(np.asarray(self.distances[i,:]) - q_dists[0, :]) <= r)])
+        # approx_idxs = [self.idx_array[i] for i in approx_idxs]
+        approx_idxs = self.idx_array[low_idx:high_idx+1]
+        # print(f"approx_idxs (len {len(approx_idxs)}): {np.array(approx_idxs)}")
+
+        dist_results = self.dist_metric.pairwise(self.data_arr[approx_idxs], X).reshape(approx_idxs.shape[0])
+        # print(f"len(dist_results): {len(dist_results)} or {dist_results.shape[0]} low_idx:high_idx {low_idx}:{high_idx}")
+        dist_results = dist_results.reshape(dist_results.shape[0])
+        # print(f"dist_results: {np.asarray(dist_results)}")
+
+        # cdef ITYPE_t result_count
+        # result_count = np.count_nonzero(dist_results <= r)
+        # print(f"dist_results <= r: {dist_results <= r}")
+        # print(f"result_count: {result_count}")
+
+        # result_arr = np.zeros(result_count, dtype=ITYPE)
+        result_arr = np.zeros(len(dist_results), dtype=ITYPE)
+        # results = get_memview_ITYPE_1D(result_arr)  # If you replace result_arr with results from here on you get nonsense.  I should understand, but do not.
+
+        count = 0
+        for i in range(len(dist_results)):
+            # print(f"{i} (count: {count}) testing point {approx_idxs[i]} with dist: {dist_results[i]}")
+            if dist_results[i] <= r:
+                # if approx_idxs[i] == 18:
+                #     print(f"adding {approx_idxs[i]}")
+                result_arr[count] = approx_idxs[i]
+                count += 1
+
+
+        # NOW WHAT?
+        # results_arr = approx_idxs[dist_results <= r]
+
+        # Why is this slow: ?
+        # results = approx_idxs[[range(8000)]]
+
+        #  This alone is slow... why?
+        # cdef np.array(dtype=bool) things  # Not sure how to declare this
+        # cdef ITYPE_t[::1] things
+        # things = [x <= r for x in dist_results]
+
+        # for i in range(len(dist_results)):
+        #     if things[i]:
+        #         results.append(approx_idxs[i])
+
+        # This is slow but works:
+        # results = approx_idxs[[x[0] <= r for x in dist_results]]
+
+        # This is even slower but works:
+        # results = np.asarray([approx_idxs[i] for i in range(len(approx_idxs)) if dist_results[i] <= r])
+
+        # print(f"results: {results}")
+        # return results
+        # return np.sort(np.asarray(results[0:count]))
+        return  np.asarray(result_arr[0:count])
+
+
+    cdef _query_radius_best_r_only(self, X, r):
+        """
+        This approach counts the candidates using each reference point by themselves
+        then brute forces the indexees from the best possible result
+
+        NOT FINISHED
+        """
+        pass
