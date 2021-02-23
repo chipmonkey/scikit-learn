@@ -189,7 +189,7 @@ cdef class TrilaterationIndex:
     cdef _query_one(self, X, k=5,
               return_distance=True):
         """
-        query the index for k nearest neighbors
+        query the index for k nearest neighbors for a single point X
         """
         if X.shape[0] != 1:
             raise ValueError("_query takes only a single X point"
@@ -309,7 +309,8 @@ cdef class TrilaterationIndex:
 
         return(self.distances[high_idx, 0] - self.distances[low_idx, 0])
 
-    def query_expand(self, X, k, return_distance=True, sort_results=True):
+    def query_expand(self, X, k, return_distance=True, sort_results=True,
+                     mfudge=5.0, miter=20, sscale=2.0):
         """
             X can be what...?
             A singlie list of one coordinate: [50, 25, 100]
@@ -325,7 +326,7 @@ cdef class TrilaterationIndex:
         cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
 
         if X.shape[0] == 1:
-            idx_results = np.asarray(self._query_expand(X, k))
+            idx_results = np.asarray(self._query_expand(X, k, mfudge, miter, sscale))
 
         else:
             raise NotImplementedError("You can't do that yet")
@@ -333,21 +334,28 @@ cdef class TrilaterationIndex:
             # all_results = [self._query_expand(x, k) for x in X]
             # print(f"all_results: {all_results}")
 
-        dist_results = self.dist_metric.pairwise(self.data_arr[idx_results], X)
-        # best = np.argsort(dist_results)
-        # dist_results = dist_results[best]
-        # idx_results = idx_results[best]
-
-        for idx, dist in zip(idx_results, dist_results):
-            heap.push(0, dist, idx)
-
         if return_distance:
+            dist_results = self.dist_metric.pairwise(self.data_arr[idx_results], X)
+            # best = np.argsort(dist_results)
+            # dist_results = dist_results[best]
+            # idx_results = idx_results[best]
+            for idx, dist in zip(idx_results, dist_results):
+                heap.push(0, dist, idx)
+
             return heap.get_arrays()
 
         return idx_results
 
+    cdef ITYPE_t _count_in_range(self, DTYPE_t* dists, r, size):
+        cdef ITYPE_t count = 0, i
 
-    cdef _query_expand(self, X, k):
+        for i in range(size):
+            if dists[i] <= r:
+                count += 1
+
+        return count
+
+    cdef _query_expand(self, X, k, mfudge, miter, sscale):
         """
         return k-nn by the expanding method...
         select a starting radius, iterate over query_radius
@@ -363,14 +371,14 @@ cdef class TrilaterationIndex:
             raise ValueError("query data dimension must "
                              "match training data dimension")
 
-        cdef DTYPE_t radius, too_high, too_low, new_radius, STD_SCALE, MAX_FUDGE
+        cdef DTYPE_t radius, too_high, too_low, new_radius, STD_SCALE, MAX_FUDGE, ratio
         cdef ITYPE_t approx_count, i, MAX_ITER
         cdef ITYPE_t[::1] approx_array
 
 
-        MAX_ITER = 20
-        MAX_FUDGE = 5.0
-        STD_SCALE = 2.0
+        MAX_ITER = miter
+        MAX_FUDGE = mfudge
+        STD_SCALE = sscale
 
         radius = self._get_start_dist(X, k)
 
@@ -387,19 +395,90 @@ cdef class TrilaterationIndex:
             elif approx_count < k:
                 too_low = radius
                 new_radius = radius * STD_SCALE
+                # new_radius = radius * k / approx_count
                 if new_radius > too_high:
-                    new_radius = (too_high + radius) / STD_SCALE
+                    new_radius = (too_high + too_low) / 2
                 radius = new_radius
-                approx_array = self._query_radius_at_least_k(X, radius, k)
+                # approx_array = self._query_radius_at_least_k(X, radius, k)
+                approx_array = self._query_radius_r0_only(X, radius)
                 approx_count = approx_array.shape[0]
                 continue
             elif approx_count > k * MAX_FUDGE:
                 radius = (radius + too_low) / STD_SCALE
-                approx_array = self._query_radius_at_least_k(X, radius, k)
+                # approx_array = self._query_radius_at_least_k(X, radius, k)
+                approx_array = self._query_radius_r0_only(X, radius)
                 approx_count = approx_array.shape[0]
             else:
                 continue
         
+        return approx_array
+
+
+    cdef _query_expand_2(self, X, k, mfudge, miter, sscale):
+        """
+        return k-nn by the expanding method...
+        select a starting radius
+        In this case we expand the radius for the sorted self.distances
+        NOT necessarily just precise distances
+        """
+
+        if X.shape[0] != 1:
+            raise ValueError("_query takes only a single X point"
+                             "use query for multiple records")
+
+        if X.shape[X.ndim - 1] != self.data.shape[1]:
+            raise ValueError("query data dimension must "
+                             "match training data dimension")
+
+        cdef DTYPE_t STD_SCALE, MAX_FUDGE, ratio, radius, dist
+        cdef ITYPE_t approx_count, i, MAX_ITER, low_count, low_idx, high_idx, ground_idx, CHUNK_SIZE
+        cdef ITYPE_t new_high, new_low, idx
+        cdef ITYPE_t[::1] approx_array
+        cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
+
+        cdef np.ndarray q_dists
+        cdef DTYPE_t[::1] new_dists, approx_dists, low_dists, high_dists
+
+        MAX_ITER = miter
+        MAX_FUDGE = mfudge
+        STD_SCALE = sscale
+        CHUNK_SIZE = max(k, 500)  # Tune?
+
+        q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+        ground_idx = _find_nearest_sorted_2D(self.distances, q_dists[0, 0])
+        low_idx = min(ground_idx - k, 0)
+        high_idx = max(ground_idx + k, self.data_arr.shape[1])
+
+        approx_array = self.idx_array[low_idx:high_idx+1]
+
+        approx_dists = self.dist_metric.pairwise(self.data_arr[approx_array], X).reshape(approx_array.shape[0])
+
+        for idx, dist in zip(approx_array, approx_dists):
+            if dist < heap.largest(0):
+                heap.push(0, dist, idx)
+
+        radius = heap.largest(0)
+        
+        approx_count = self._count_in_range(&approx_dists[0], radius, approx_dists.shape[0])
+
+        while approx_count < k:
+            new_low = min(low_idx - CHUNK_SIZE, 0)
+            new_high = max(high_idx + CHUNK_SIZE, self.data_arr.shape[1])
+            if new_low < low_idx:
+                low_dists = self.dist_metric.pairwise(self.idx_array[new_low:low_idx], X).reshape(low_idx - new_low)
+                low_count = self._count_in_range(&low_dists[0], radius, low_dists.shape[0])
+                approx_count = approx_count + low_count
+                low_idx = new_low
+            
+            if new_high > high_idx:
+                high_dists = self.dist_metric.pairwise(self.idx_array[high_idx:new_high], X).reshape(new_high - high_idx)
+                high_count = self._count_in_range(&high_dists[0], radius, high_dists.shape[0])
+                approx_count = approx_count + high_count
+                high_idx = new_high
+
+            approx_array = self.idx_array[low_idx:high_idx+1]
+            radius = heap.largest(0)
+  
         return approx_array
 
 
@@ -544,8 +623,6 @@ cdef class TrilaterationIndex:
         """
         This approach uses only the original sort order from Ref Point 0
         and then brute forces whatever that index indicates MAY be in range
-
-        NOT FINISHED
         """
 
         cdef DTYPE_t[:, ::1] q_dists # , dist_results
@@ -588,7 +665,7 @@ cdef class TrilaterationIndex:
 
         dist_results = self.dist_metric.pairwise(self.data_arr[approx_idxs], X).reshape(approx_idxs.shape[0])
         # print(f"len(dist_results): {len(dist_results)} or {dist_results.shape[0]} low_idx:high_idx {low_idx}:{high_idx}")
-        dist_results = dist_results.reshape(dist_results.shape[0])
+        # dist_results = dist_results.reshape(dist_results.shape[0])
         # print(f"dist_results: {np.asarray(dist_results)}")
 
         # cdef ITYPE_t result_count
