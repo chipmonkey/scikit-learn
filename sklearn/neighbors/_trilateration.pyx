@@ -414,10 +414,37 @@ cdef class TrilaterationIndex:
         return approx_array
 
 
+    def query_expand_2(self, X, k, return_distance=True, sort_results=True,
+                     mfudge=5.0, miter=20, sscale=2.0):
+        """
+            X can be what...?
+            A singlie list of one coordinate: [50, 25, 100]
+        """
+        cdef np.ndarray idx_results
+        # cdef DTYPE_t[::1] dist_results
+        cdef np.ndarray dist_results
+
+        # print(f"taa daa: {X}")
+
+        if isinstance(X, list):
+            X = np.asarray(X)
+
+        cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
+
+        if X.shape[0] == 1:
+            heap = self._query_expand_2(X, k, mfudge, miter, sscale)
+
+        else:
+            raise NotImplementedError("You can't do that yet")
+
+        if return_distance:
+            return heap.get_arrays()
+
+        return heap.get_arrays()  # Fix this
+
     cdef _query_expand_2(self, X, k, mfudge, miter, sscale):
         """
         return k-nn by the expanding method...
-        select a starting radius
         In this case we expand the radius for the sorted self.distances
         NOT necessarily just precise distances
         """
@@ -436,7 +463,7 @@ cdef class TrilaterationIndex:
         cdef ITYPE_t[::1] approx_array
         cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
 
-        cdef np.ndarray q_dists
+        cdef np.ndarray q_dists, temp_data
         cdef DTYPE_t[::1] new_dists, approx_dists, low_dists, high_dists
 
         MAX_ITER = miter
@@ -446,40 +473,54 @@ cdef class TrilaterationIndex:
 
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
         ground_idx = _find_nearest_sorted_2D(self.distances, q_dists[0, 0])
-        low_idx = min(ground_idx - k, 0)
-        high_idx = max(ground_idx + k, self.data_arr.shape[1])
+        low_idx = max(ground_idx - k, 0)
+        high_idx = min(ground_idx + k, self.data_arr.shape[0])
 
         approx_array = self.idx_array[low_idx:high_idx+1]
-
+        # print(f"k: {k}, ground_idx: {ground_idx}, low_idx: {low_idx}, high_idx: {high_idx}")
+        # print(f"getting dists for approx_array: {approx_array} with shape: {approx_array.shape}")
         approx_dists = self.dist_metric.pairwise(self.data_arr[approx_array], X).reshape(approx_array.shape[0])
 
         for idx, dist in zip(approx_array, approx_dists):
             if dist < heap.largest(0):
                 heap.push(0, dist, idx)
-
-        radius = heap.largest(0)
         
-        approx_count = self._count_in_range(&approx_dists[0], radius, approx_dists.shape[0])
+        lowdelta = fabs(self.distances[low_idx, 0] - q_dists[0, 0])
+        highdelta = fabs(self.distances[high_idx, 0] - q_dists[0, 0])
 
-        while approx_count < k:
-            new_low = min(low_idx - CHUNK_SIZE, 0)
-            new_high = max(high_idx + CHUNK_SIZE, self.data_arr.shape[1])
-            if new_low < low_idx:
-                low_dists = self.dist_metric.pairwise(self.idx_array[new_low:low_idx], X).reshape(low_idx - new_low)
-                low_count = self._count_in_range(&low_dists[0], radius, low_dists.shape[0])
-                approx_count = approx_count + low_count
-                low_idx = new_low
-            
-            if new_high > high_idx:
-                high_dists = self.dist_metric.pairwise(self.idx_array[high_idx:new_high], X).reshape(new_high - high_idx)
-                high_count = self._count_in_range(&high_dists[0], radius, high_dists.shape[0])
-                approx_count = approx_count + high_count
-                high_idx = new_high
+        # While the "not closer than" numbers are still closer than the current solution...
+        count = 0
+        while (lowdelta < heap.largest(0) and low_idx > 0) \
+              or (highdelta < heap.largest(0) and high_idx < self.data_arr.shape[0]):
+            count += 1
+            # print(count, lowdelta, highdelta, heap.largest(0), low_idx, high_idx)
+            if lowdelta < heap.largest(0):
+                new_low = max(low_idx - CHUNK_SIZE, 0)
+                if new_low < low_idx:
+                    low_dists = self.dist_metric.pairwise(self.data_arr[self.idx_array[new_low:low_idx]], X)[0] #.reshape(low_idx - new_low)
+                    for idx in range(low_idx - new_low):
+                        if low_dists[idx] < heap.largest(0):
+                            heap.push(0, low_dists[idx], self.idx_array[idx + new_low])
+                    low_idx = new_low
 
-            approx_array = self.idx_array[low_idx:high_idx+1]
-            radius = heap.largest(0)
+            if highdelta < heap.largest(0):
+                new_high = min(high_idx + CHUNK_SIZE, self.data_arr.shape[0])
+                if new_high > high_idx:
+                    # print(f"new_high: {new_high}, high_idx: {high_idx}, self.data_arr.shape[1]")
+                    high_dists = self.dist_metric.pairwise(self.data_arr[self.idx_array[high_idx:new_high]], X)[0] #.reshape(new_high - high_idx)
+                    # testing approaches for performance:
+                    for idx in range(new_high - high_idx):
+                        if high_dists[idx] < heap.largest(0):
+                            heap.push(0, high_dists[idx], self.idx_array[idx + high_idx])
+                    # for idx, dist in zip(self.idx_array[high_idx:new_high], high_dists):
+                    #     if dist < heap.largest(0):
+                    #         heap.push(0, dist, idx)
+                    high_idx = new_high
+
+            lowdelta = fabs(self.distances[low_idx, 0] - q_dists[0, 0])
+            highdelta = fabs(self.distances[high_idx, 0] - q_dists[0, 0])
   
-        return approx_array
+        return heap
 
 
     def query_radius(self, X, r,
