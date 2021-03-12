@@ -751,6 +751,53 @@ def haversine_distances(X, Y=None):
     from sklearn.neighbors import DistanceMetric
     return DistanceMetric.get_metric('haversine').pairwise(X, Y)
 
+def geodesic_distances(X, Y=None):
+    """Compute the Geodesic distance between samples in X and Y.
+
+    The geodesic distance is an accurate measure of the distance between
+        two points on the earth, using an ellipsoidal model of the earth
+        which is more accurate than the spherical model used in Haversine.
+
+        The trade-off is that no closed form calculation exists, so the
+        process is iterative, using numeric techniques until a specific
+        accuracy is reached.
+
+        See the geopy.distance.geodesic code for implementation details.
+
+    Parameters
+    ----------
+    X : array-like of shape (n_samples_X, 2)
+
+    Y : array-like of shape (n_samples_Y, 2), default=None
+
+    Returns
+    -------
+    distance : ndarray of shape (n_samples_X, n_samples_Y)
+
+    Notes
+    -----
+    This will be significantly slower than the Haversine distance and
+    should only be used when more accuracy is needed.
+
+    Unlike Haversine, which requires input in radians, the geodesic
+    implementation works on (latitude, longitude) pairs.
+
+    Examples
+    --------
+    We want to calculate the distance between the Ezeiza Airport
+    (Buenos Aires, Argentina) and the Charles de Gaulle Airport (Paris,
+    France).
+
+    >>> from sklearn.metrics.pairwise import geodesic_distances
+    >>> bsas = [-34.83333, -58.5166646]
+    >>> paris = [49.0083899664, 2.53844117956]
+    >>> result = geodesic_distances([bsas, paris])
+    >>> result
+    array([[    0.        , 11099.54035582],
+           [11099.54035582,     0.        ]])
+    """
+    from sklearn.neighbors import DistanceMetric
+    return DistanceMetric.get_metric('geodesic').pairwise(X, Y)
 
 @_deprecate_positional_args
 def manhattan_distances(X, Y=None, *, sum_over_features=True):
@@ -1340,6 +1387,7 @@ PAIRWISE_DISTANCE_FUNCTIONS = {
     'manhattan': manhattan_distances,
     'precomputed': None,  # HACK: precomputed is always allowed, never called
     'nan_euclidean': nan_euclidean_distances,
+    'geodesic': geodesic_distances,
 }
 
 
@@ -1359,6 +1407,7 @@ def distance_metrics():
     'cosine'        metrics.pairwise.cosine_distances
     'euclidean'     metrics.pairwise.euclidean_distances
     'haversine'     metrics.pairwise.haversine_distances
+    'geodesic'      metrics.pairwise.geodesic_distances
     'l1'            metrics.pairwise.manhattan_distances
     'l2'            metrics.pairwise.euclidean_distances
     'manhattan'     metrics.pairwise.manhattan_distances
@@ -1440,7 +1489,7 @@ _VALID_METRICS = ['euclidean', 'l2', 'l1', 'manhattan', 'cityblock',
                   'mahalanobis', 'matching', 'minkowski', 'rogerstanimoto',
                   'russellrao', 'seuclidean', 'sokalmichener',
                   'sokalsneath', 'sqeuclidean', 'yule', "wminkowski",
-                  'nan_euclidean', 'haversine']
+                  'nan_euclidean', 'haversine', 'geodesic']
 
 _NAN_METRICS = ['nan_euclidean']
 
@@ -1693,6 +1742,9 @@ def pairwise_distances(X, Y=None, metric="euclidean", *, n_jobs=None,
       'sokalmichener', 'sokalsneath', 'sqeuclidean', 'yule']
       See the documentation for scipy.spatial.distance for details on these
       metrics. These metrics do not support sparse matrix inputs.
+
+    - From geopy.distance: ['geodesic']
+      See the documentation for geopy for details on this metric.
 
     Note that in the case of 'cityblock', 'cosine' and 'euclidean' (which are
     valid scipy.spatial.distance metrics), the scikit-learn implementation

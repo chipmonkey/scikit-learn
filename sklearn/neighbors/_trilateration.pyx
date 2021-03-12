@@ -45,7 +45,8 @@ __all__ = ['TrilaterationIndex']
 DOC_DICT = {'TrilaterationIndex': 'TrilaterationIndex'}
 
 # Start simple:
-VALID_METRICS = ['EuclideanDistance']
+VALID_METRICS = ['EuclideanDistance', 'HaversineDistance',
+                 'GeodesicDistance']
 
 include "_helpers.pxi"
 
@@ -95,8 +96,7 @@ cdef class TrilaterationIndex:
         n_features = self.data_arr.shape[1]
 
         self.dist_metric = DistanceMetric.get_metric(metric, **kwargs)
-        # self.euclidean = (self.dist_metric.__class__.__name__
-        #                   == 'EuclideanDistance')
+
         metric = self.dist_metric.__class__.__name__
         if metric not in VALID_METRICS:
             raise ValueError('metric {metric} is not valid for '
@@ -208,7 +208,7 @@ cdef class TrilaterationIndex:
         cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
 
         # Establish the distances from the query point to the reference points
-        cdef np.ndarray q_dists
+        cdef np.ndarray[DTYPE_t, ndim=2] q_dists
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
 
         # cdef DTYPE_t[:, ::1] Xarr

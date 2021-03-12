@@ -4,6 +4,7 @@
 #cython: cdivision=True
 
 # By Jake Vanderplas (2013) <jakevdp@cs.washington.edu>
+# Geodesic hack by Chip Lynch (2021) <chip.lynch@louisville.edu> #needswork
 # written for the scikit-learn project
 # License: BSD
 
@@ -11,6 +12,7 @@ import numpy as np
 cimport numpy as np
 np.import_array()  # required in order to use C-API
 
+from geopy.distance import geodesic
 
 ######################################################################
 # Numpy 1.3-1.4 compatibility utilities
@@ -86,7 +88,9 @@ METRIC_MAPPING = {'euclidean': EuclideanDistance,
                   'sokalmichener': SokalMichenerDistance,
                   'sokalsneath': SokalSneathDistance,
                   'haversine': HaversineDistance,
-                  'pyfunc': PyFuncDistance}
+                  'pyfunc': PyFuncDistance,
+                  'geodesic': GeodesicDistance,
+                  'vincenty': GeodesicDistance}
 
 
 def get_valid_metric_ids(L):
@@ -410,6 +414,31 @@ cdef class DistanceMetric:
                        get_memview_DTYPE_2D(Darr))
         return Darr
 
+#------------------------------------------------------------
+# Geodesic Distance
+#  Accurate distance between two points on earth
+#     modeled as an Ellipsoid
+#     see HaversineDistance for a Spheroid earth distance
+cdef class GeodesicDistance(DistanceMetric):
+    r""" Geodesic Distance metric
+
+    Imported from geopy, see:
+    https://geopy.readthedocs.io/en/stable/#module-geopy.distance
+    """
+
+    # Late import to only happen if needed
+    from geopy.distance import geodesic
+
+    def __init__(self):
+        self.p = 2
+    
+    cdef DTYPE_t dist(self, DTYPE_t* x1, DTYPE_t* x2,
+                            ITYPE_t size) nogil except -1:
+        if size != 2:
+            with gil:
+                raise ValueError("Geodesic Distance takes only 2-dimensions (Latitude, Longitude)")
+        with gil:
+            return geodesic((x1[0], x1[1]),(x2[0], x2[1])).meters
 
 #------------------------------------------------------------
 # Euclidean Distance
