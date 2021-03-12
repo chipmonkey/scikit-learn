@@ -61,6 +61,8 @@ cdef class TrilaterationIndex:
     cdef np.ndarray r_indexes
     cdef np.ndarray r_distances
 
+    cdef char* metric
+
     cdef readonly ITYPE_t[:, ::1] r_indexes_mv
     cdef readonly DTYPE_t[:, ::1] r_distances_mv
 
@@ -80,18 +82,6 @@ cdef class TrilaterationIndex:
     def __init__(self, data, ref=None, metric='euclidean', **kwargs):
         self.data_arr = check_array(data, dtype=DTYPE, order='C')
 
-        # Ref points can be passed in
-        # Otherwise they are generated based on input data
-        if ref is None:
-            ref = self._create_ref_points()
-            # print("generated synthetic reference points:")
-            # print(ref)
-
-        self.ref_points_arr = check_array(ref, dtype=DTYPE, order='C')
-
-        if self.data_arr.shape[1] != self.ref_points_arr.shape[1]:
-            raise ValueError("Data and reference points must share same dimension")
-
         n_samples = self.data_arr.shape[0]
         n_features = self.data_arr.shape[1]
 
@@ -104,7 +94,19 @@ cdef class TrilaterationIndex:
                                                    **DOC_DICT))
         self.dist_metric._validate_data(self.data_arr)
 
+        # Ref points can be passed in
+        # Otherwise they are generated based on input data
+        if ref is None:
+            ref = self._create_ref_points()
+            # print("generated synthetic reference points:")
+            # print(ref)
+
+        self.ref_points_arr = check_array(ref, dtype=DTYPE, order='C')
+
         self.ref_dists = self.dist_metric.pairwise(self.data_arr, self.ref_points_arr)
+
+        if self.data_arr.shape[1] != self.ref_points_arr.shape[1]:
+            raise ValueError("Data and reference points must share same dimension")
 
         # allocate arrays for storage
         self.idx_array_arr = np.arange(n_samples, dtype=ITYPE)
@@ -140,11 +142,17 @@ cdef class TrilaterationIndex:
 
         For the love of all that is holy, make this better.
         """
-
         cdef DTYPE_t MAX_REF = 9999.0
 
         self.ndims = self.data_arr.shape[1]
-        refs = [[0]*i+[MAX_REF]*(self.ndims-i) for i in range(self.ndims)]
+
+        print(f"self.dist_metric.__class__.__name__: {self.dist_metric.__class__.__name__}")
+
+        if self.dist_metric.__class__.__name__ == 'GeodesicDistance' or \
+                self.dist_metric.__class__.__name__  == 'HaversineDistance':
+            refs = [[90, 0], [38.26, -85.76], [-19.22, 159.93]]
+        else:
+            refs = [[0]*i+[MAX_REF]*(self.ndims-i) for i in range(self.ndims)]
         return np.asarray(refs)
 
 

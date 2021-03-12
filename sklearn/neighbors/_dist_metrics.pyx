@@ -438,7 +438,7 @@ cdef class GeodesicDistance(DistanceMetric):
             with gil:
                 raise ValueError("Geodesic Distance takes only 2-dimensions (Latitude, Longitude)")
         with gil:
-            return geodesic((x1[0], x1[1]),(x2[0], x2[1])).meters
+            return geodesic((x1[0], x1[1]),(x2[0], x2[1])).kilometers
 
 #------------------------------------------------------------
 # Euclidean Distance

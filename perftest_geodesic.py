@@ -27,6 +27,9 @@ with open('/home/chipmonkey/repos/TrilaterationIndex/data/lat_long_synthetic.csv
         # print(row)
         samples.append([row['Latitude'], row['Longitude']])
 
+print(min([x[0] for x in samples]), max([x[0] for x in samples]))
+print(min([x[1] for x in samples]), max([x[1] for x in samples]))
+
 with open('/home/chipmonkey/repos/TrilaterationIndex/data/ref_points.csv') as csvfile:
     reader = csv.DictReader(csvfile, quoting=csv.QUOTE_NONNUMERIC)
     for row in reader:
@@ -38,6 +41,11 @@ from sklearn.neighbors import TrilaterationIndex
 
 print(f"{time.time() - start} seconds since start")
 
+from sklearn.metrics.pairwise import geodesic_distances
+bsas = [-34.83333, -58.5166646]
+paris = [49.0083899664, 2.53844117956]
+result = geodesic_distances([bsas, paris])
+print(f"{result} meters between bsas and paris")
 
 brute = NearestNeighbors(n_neighbors=1000, radius=0.07, algorithm='brute', metric='geodesic')
 brute.fit(samples)
@@ -85,30 +93,29 @@ if 18 in t3[1]:
 # print(f"timing brute force:")
 # cProfile.runctx('timeit.timeit(lambda: brute.kneighbors(querypoint, 100), number=20)', globals(), locals(), "QBFProfile.prof")
 
-print("timing kd tree")
-cProfile.runctx('timeit.timeit(lambda: tree.query(querypoint, k=100), number=20)', globals(), locals(), "QKDProfile_geo.prof")
+# print("timing kd tree")
+# cProfile.runctx('timeit.timeit(lambda: tree.query(querypoint, k=100), number=20)', globals(), locals(), "QKDProfile_geo.prof")
 
+# print("timing trilat.query")
+# cProfile.runctx('timeit.timeit(lambda: trilat.query(querypoint, k=100), number=20)', globals(), locals(), "QTRProfile_geo.prof")
 
-print("timing trilat.query")
-cProfile.runctx('timeit.timeit(lambda: trilat.query(querypoint, k=100), number=20)', globals(), locals(), "QTRProfile_geo.prof")
+# print("timing query_expand")
+# cProfile.runctx('timeit.timeit(lambda: trilat.query_expand(querypoint, k=100, mfudge=5, miter=20, sscale=2), number=20)', globals(), locals(), "QT3Profile_geo.prof")
 
-print("timing query_expand")
-cProfile.runctx('timeit.timeit(lambda: trilat.query_expand(querypoint, k=100, mfudge=5, miter=20, sscale=2), number=20)', globals(), locals(), "QT3Profile_geo.prof")
+# print("timing query_expand_2")
+# cProfile.runctx('timeit.timeit(lambda: trilat.query_expand_2(querypoint, k=100, mfudge=5, miter=20, sscale=2), number=20)', globals(), locals(), "QT4Profile_geo.prof")
 
-print("timing query_expand_2")
-cProfile.runctx('timeit.timeit(lambda: trilat.query_expand_2(querypoint, k=100, mfudge=5, miter=20, sscale=2), number=20)', globals(), locals(), "QT4Profile_geo.prof")
-
-s = pstats.Stats("QBFProfile.prof")
+s = pstats.Stats("QBFProfile_geo.prof")
 s.strip_dirs().sort_stats("cumtime").print_stats()
 
-s = pstats.Stats("QKDProfile.prof")
+s = pstats.Stats("QKDProfile_geo.prof")
 s.strip_dirs().sort_stats("cumtime").print_stats()
 
-s = pstats.Stats("QTRProfile.prof")
+s = pstats.Stats("QTRProfile_geo.prof")
 s.strip_dirs().sort_stats("cumtime").print_stats()
 
-s = pstats.Stats("QT3Profile.prof")
+s = pstats.Stats("QT3Profile_geo.prof")
 s.strip_dirs().sort_stats("cumtime").print_stats()
 
-s = pstats.Stats("QT4Profile.prof")
+s = pstats.Stats("QT4Profile_geo.prof")
 s.strip_dirs().sort_stats("cumtime").print_stats()
