@@ -27,8 +27,6 @@ from collections import Counter
 from functools import reduce
 from libc.math cimport fabs, ceil
 
-from scipy.spatial.distance import cdist
-
 from ..utils import (
     check_array
 )
@@ -227,8 +225,7 @@ cdef class TrilaterationIndex:
         cdef DTYPE_t best_dist, test_dist
 
         best_idx = _find_nearest_sorted_2D(self.distances, q_dists[0,0])
-        # best_dist = self.dist_metric.dist(self.data[best_idx,:], &Xarr, X.shape[1])
-        best_dist = cdist([self.data_arr[self.idx_array_arr[best_idx],:]], X)
+        best_dist = self.dist_metric.pairwise([self.data_arr[self.idx_array_arr[best_idx],:]], X)
         # heap.push(0, best_dist, best_idx)
 
         # Populate the heap using 2k elements; k on each side of our first guess:
@@ -236,7 +233,7 @@ cdef class TrilaterationIndex:
         high_idx = min(best_idx + k, self.distances.shape[0])
         for i in range(low_idx, high_idx + 1):
             if i < self.distances.shape[0]:
-                test_dist = cdist([self.data_arr[self.idx_array_arr[i],:]], X)
+                test_dist = self.dist_metric.pairwise([self.data_arr[self.idx_array_arr[i],:]], X)
                 heap.push(0, test_dist, self.idx_array_arr[i])
 
 
@@ -283,7 +280,7 @@ cdef class TrilaterationIndex:
                     break
             
             if sufficient:
-                test_dist = cdist([self.data_arr[self.idx_array[test_idx],:]], X)
+                test_dist = self.dist_metric.pairwise([self.data_arr[self.idx_array[test_idx],:]], X)
                 # print(f"{test_idx} is sufficient... test_dist is: {test_dist}")
                 if test_dist < heap.largest(0):
                     heap.push(0, test_dist, self.idx_array[test_idx])

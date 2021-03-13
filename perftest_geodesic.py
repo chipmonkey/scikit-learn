@@ -64,20 +64,18 @@ trilat = TrilaterationIndex(samples, metric='geodesic')
 # t = timeit.timeit(lambda: trilat.query_radius(querypoint, r=0.07), number=500)
 # print(f"Trilat 500x single point time: {t}")
 tr = trilat.query(querypoint, k=100)
-print(f"trilat query_radius: {tr} ({len(tr)}) - at time {time.time() - start} seconds")
+print(f"trilat.query: {tr} ({len(tr)}) - at time {time.time() - start} seconds")
 
 
 t3 = trilat.query_expand(querypoint, k=100)
-print(f"trilat query_radius_t3: {t3} ({len(t3)}) - at time {time.time() - start} seconds")
+print(f"trilat.query_expand (t3): {t3} ({len(t3)}) - at time {time.time() - start} seconds")
 
 t4 = trilat.query_expand_2(querypoint, k=100)
-print(f"trilat query_expand_2: {t4} ({len(t4)}) - at time {time.time() - start} seconds")
+print(f"trilat.query_expand_2 (t4): {t4} ({len(t4)}) - at time {time.time() - start} seconds")
 
 print(f"length match 1: {len(np.intersect1d(tq[1], tr[1]))}")
 print(f"length match 2: {len(np.intersect1d(tq[1], t3[1]))}")
 print(f"length match 4: {len(np.intersect1d(tq[1], t4[1]))}")
-
-# exit()
 
 print(f"setdiff: {np.setdiff1d(tq[0], t3)}")
 if 18 in tq[0]:
@@ -85,13 +83,11 @@ if 18 in tq[0]:
 if 18 in t3[1]:
     print("18 in t3")
 
+# exit()
 
-
-# print(type(querypoint))
-# cProfile.runctx('trilat.query_radius(querypoint, r=0.07)', globals(), locals(), "Profile.prof")
-
+# uncomment to rerun, otherwise just print results:
 # print(f"timing brute force:")
-# cProfile.runctx('timeit.timeit(lambda: brute.kneighbors(querypoint, 100), number=20)', globals(), locals(), "QBFProfile.prof")
+# cProfile.runctx('timeit.timeit(lambda: brute.kneighbors(querypoint, 100), number=20)', globals(), locals(), "QBFProfile_geo.prof")
 
 # print("timing kd tree")
 # cProfile.runctx('timeit.timeit(lambda: tree.query(querypoint, k=100), number=20)', globals(), locals(), "QKDProfile_geo.prof")

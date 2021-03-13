@@ -80,18 +80,16 @@ if 18 in t3[1]:
 # print(type(querypoint))
 # cProfile.runctx('trilat.query_radius(querypoint, r=0.07)', globals(), locals(), "Profile.prof")
 
-# print(f"timing brute force:")
-# cProfile.runctx('timeit.timeit(lambda: brute.kneighbors(querypoint, 100), number=500)', globals(), locals(), "QBFProfile.prof")
-print("running one kd tree")
-tree.query(querypoint, k=100)
+print(f"timing brute force:")
+cProfile.runctx('timeit.timeit(lambda: brute.kneighbors(querypoint, 100), number=500)', globals(), locals(), "QBFProfile.prof")
 
 print("timing kd tree")
 # cProfile.runctx('timeit.timeit(lambda: tree.query(querypoint, k=100), number=500)', globals(), locals(), "QKDProfile.prof")
 cProfile.runctx('timeit.timeit(lambda: tree.query(querypoint, k=100), number=20)', globals(), locals(), "QKDProfile.prof")
 
 
-# print("timing trilat.query")
-# cProfile.runctx('timeit.timeit(lambda: trilat.query(querypoint, k=100), number=500)', globals(), locals(), "QTRProfile.prof")
+print("timing trilat.query")
+cProfile.runctx('timeit.timeit(lambda: trilat.query(querypoint, k=100), number=500)', globals(), locals(), "QTRProfile.prof")
 
 print("timing query_expand")
 cProfile.runctx('timeit.timeit(lambda: trilat.query_expand(querypoint, k=100, mfudge=5, miter=20, sscale=2), number=500)', globals(), locals(), "QT3Profile.prof")
