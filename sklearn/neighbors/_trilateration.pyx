@@ -144,7 +144,7 @@ cdef class TrilaterationIndex:
 
         self.ndims = self.data_arr.shape[1]
 
-        print(f"self.dist_metric.__class__.__name__: {self.dist_metric.__class__.__name__}")
+        # print(f"self.dist_metric.__class__.__name__: {self.dist_metric.__class__.__name__}")
 
         if self.dist_metric.__class__.__name__ == 'GeodesicDistance' or \
                 self.dist_metric.__class__.__name__  == 'HaversineDistance':
@@ -179,8 +179,10 @@ cdef class TrilaterationIndex:
         """
 
         if isinstance(X, list):
+            # print("check 1")
             results = self._query_one(np.asarray(X), k, return_distance)
         elif X.shape[0] == 1:
+            # print("check 2")
             results=self._query_one(X, k, return_distance)
         else:
             raise NotImplementedError("Not yet")
@@ -189,7 +191,6 @@ cdef class TrilaterationIndex:
             #                   return_distance=return_distance,
             #                   sort_results=sort_results) \
             #            for x in X]
-
         return results
 
     cdef _query_one(self, X, k=5,
@@ -202,6 +203,7 @@ cdef class TrilaterationIndex:
                              "use query for multiple records")
 
         if X.shape[X.ndim - 1] != self.data.shape[1]:
+            # print(f"X is : {X}")
             raise ValueError("query data dimension must "
                              "match training data dimension")
         
@@ -209,13 +211,18 @@ cdef class TrilaterationIndex:
             raise ValueError("k must be less than or equal "
                              "to the number of training points")
 
+        # print(f"Check: X is {X}")
         # Can probably improve this - using a heap that allows more than 1 value
         # but we're always only using one here (X.shape[0] must be 1 from above)
         cdef NeighborsHeap heap = NeighborsHeap(X.shape[0], k)
 
+        # print(f"Check - Built NeighborsHeap")
+
         # Establish the distances from the query point to the reference points
         cdef np.ndarray[DTYPE_t, ndim=2] q_dists
         q_dists = self.dist_metric.pairwise(X, self.ref_points_arr)
+
+        # print(f"Check - built q_dists")
 
         # cdef DTYPE_t[:, ::1] Xarr
         # Xarr = get_memview_DTYPE_2D(np.asarray(X))
@@ -228,17 +235,20 @@ cdef class TrilaterationIndex:
         best_dist = self.dist_metric.pairwise([self.data_arr[self.idx_array_arr[best_idx],:]], X)
         # heap.push(0, best_dist, best_idx)
 
+
         # Populate the heap using 2k elements; k on each side of our first guess:
         low_idx = max(best_idx - k, 0)
         high_idx = min(best_idx + k, self.distances.shape[0])
+        # print("Check - ready for loop")
         for i in range(low_idx, high_idx + 1):
+            # print(f"Check - Loop {i}")
             if i < self.distances.shape[0]:
                 test_dist = self.dist_metric.pairwise([self.data_arr[self.idx_array_arr[i],:]], X)
                 heap.push(0, test_dist, self.idx_array_arr[i])
 
-
+        # print("Check - out of loop")
         # Establish bounds between which to search
-        if heap.largest(0) != np.inf:
+        if heap.largest(0) == np.inf:  # This was != before... bug?
             low_idx_possible = 0
             high_idx_possible = self.data_arr.shape[0]
         else:
@@ -249,20 +259,26 @@ cdef class TrilaterationIndex:
         # So we test more than one new point at a time
         test_idx = best_idx
 
+        # print(f"Check - low_idx_possible: {low_idx_possible}, high_idx_possible: {high_idx_possible}")
+
         while True:
+            # print(f"Check - Entering while loop with low_idx: {low_idx}, high_idx: {high_idx}")
             if low_idx <= low_idx_possible and high_idx >= high_idx_possible:
                 break
 
             # Determine whether the next high or low point is a better test:
             lowdelta = fabs(self.distances[low_idx, 0] - q_dists[0, 0])
             highdelta = fabs(self.distances[high_idx, 0] - q_dists[0, 0])
-            if lowdelta <= highdelta and low_idx >= low_idx_possible:
+            if lowdelta <= highdelta and low_idx > low_idx_possible:
+                # print("check a")
                 test_idx = low_idx
                 low_idx = low_idx - 1
-            elif high_idx <= high_idx_possible:
+            elif high_idx < high_idx_possible:
+                # print("check b")
                 test_idx = high_idx
                 high_idx = high_idx + 1
-            elif low_idx >= low_idx_possible:
+            elif low_idx > low_idx_possible:
+                # print("check c")
                 test_idx = low_idx
                 low_idx = low_idx - 1
             else:
@@ -273,6 +289,7 @@ cdef class TrilaterationIndex:
             # Check that all pre-calculated distances are better than best
             sufficient = True
 
+            # print("Check - checking sufficient")
             for d, q in zip(self.distances[test_idx,1:], q_dists[0,1:]):
                 # print(f"testing that: {abs(d-q)} < {heap.largest(0)}")
                 if abs(d-q) > heap.largest(0):
@@ -290,7 +307,7 @@ cdef class TrilaterationIndex:
                     high_idx_possible = _find_nearest_sorted_2D(self.distances, q_dists[0, 0] + heap.largest(0))
 
             continue
-
+        # print("Check - out of while")
         # return (self.idx_array[best_idx], best_dist)
         return heap.get_arrays()
 
@@ -727,8 +744,6 @@ cdef class TrilaterationIndex:
         for i in range(len(dist_results)):
             # print(f"{i} (count: {count}) testing point {approx_idxs[i]} with dist: {dist_results[i]}")
             if dist_results[i] <= r:
-                # if approx_idxs[i] == 18:
-                #     print(f"adding {approx_idxs[i]}")
                 result_arr[count] = approx_idxs[i]
                 count += 1
 
