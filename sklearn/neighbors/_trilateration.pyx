@@ -326,10 +326,14 @@ cdef class TrilaterationIndex:
         
         ground_idx = _find_nearest_sorted_2D(self.distances, q_dists[0, 0])
         # ground_idx = np.searchsorted(self.distances, q_dists[0, 0], side="left")
-        low_idx = ground_idx - (k//2)
-        high_idx = ground_idx + ceil(k/2)
+        low_idx = max(ground_idx - k, 0)
+        high_idx = min(ground_idx + k, self.data_arr.shape[0])
 
-        return(self.distances[high_idx, 0] - self.distances[low_idx, 0])
+        # Values were insanely low - like 1e-07.  For now, forcing min of 0.5.  Consider improvements here.
+        # print(f"""get_start_dist: ({low_idx}, {high_idx}), {self.distances[high_idx, 0]}, {self.distances[low_idx, 0]}
+        #         {self.distances[high_idx, 0] - self.distances[low_idx, 0]}""")
+
+        return(min(0.5, self.distances[high_idx, 0] - self.distances[low_idx, 0]))
 
     def query_expand(self, X, k, return_distance=True, sort_results=True,
                      mfudge=5.0, miter=20, sscale=2.0):
@@ -421,12 +425,16 @@ cdef class TrilaterationIndex:
                 if new_radius > too_high:
                     new_radius = (too_high + too_low) / 2
                 radius = new_radius
+                # print(f"too small... new radius: {radius}")
                 # approx_array = self._query_radius_at_least_k(X, radius, k)
                 approx_array = self._query_radius_r0_only(X, radius)
                 approx_count = approx_array.shape[0]
+                # print(f"approx_count: {approx_count}")
                 continue
             elif approx_count > k * MAX_FUDGE:
+                too_high = radius
                 radius = (radius + too_low) / STD_SCALE
+                # print(f"too big... new radius: {radius}")
                 # approx_array = self._query_radius_at_least_k(X, radius, k)
                 approx_array = self._query_radius_r0_only(X, radius)
                 approx_count = approx_array.shape[0]
